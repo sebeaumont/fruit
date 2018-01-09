@@ -1,5 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Main program to process input documents, vectorize and send to ML backends
+-- test bed for encoder and ML modules.
+-- Contact: <mailto:simon.beaumont@clinitink.com>
+-- Internal Use Only - All Rights Reserved.
+
 module Main where
 
 import System.IO (isEOF)
@@ -9,6 +14,7 @@ import qualified Data.Text as T
 import qualified Data.ByteString as B
 --import qualified Data.Sequence as S
 --import Debug.Trace
+import Database.SDM
 
 
 -- | Record to represent a general document we might want to add an
@@ -50,7 +56,6 @@ decodeDocument n s =
 -- | test output driver
 processDocument :: Document -> IO ()
 processDocument d = 
-  let buffer = [] in
     print $ samples [cleanToken t | t <- tokenizeDocument d] 7
 
 
@@ -64,11 +69,15 @@ cleanToken = T.dropAround isPunctuation
 
 
 --
--- experimental cotraining
+-- experimental training
 --
 
 type Frame = [T.Text] 
 
+-- TODO for external training we need to pass a training action through to
+-- sample.. or use processDocument as this is driver and keep these pure
+
+-- | samples get list of tokens in a doc and window size
 samples :: [T.Text] -> Int -> Double  
 samples [] _ = 0.0
 samples (t:ts) n  = sample t (take n ts) + samples ts n
