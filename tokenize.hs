@@ -76,6 +76,7 @@ type Frame = [T.Text]
 
 -- TODO for external training we need to pass a training action through to
 -- sample.. or use processDocument as this is driver and keep these pure
+-- i.e. refactor this a bit ;-) 
 
 -- | samples get list of tokens in a doc and window size
 samples :: [T.Text] -> Int -> Double  
