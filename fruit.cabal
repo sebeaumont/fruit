@@ -27,6 +27,7 @@ executable fruit
                      , hsdmdb
                      , grenade
                      , galgebra
+                     , cmdargs
 
   -- hs-source-dirs:      
   default-language:    Haskell2010

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 -- | Main program to process input documents, vectorize and send to ML backends
 -- test bed for encoder and ML modules.
@@ -7,18 +8,33 @@
 
 module Main where
 
+import Control.Monad (when)
 import System.IO (isEOF)
+import System.Console.CmdArgs
 import Data.Aeson
 import Data.Char
 import qualified Data.Text as T
 import qualified Data.ByteString as B
---import qualified Data.Sequence as S
 --import Debug.Trace
 import Database.SDM
 
+-- | Command line options for this program
+data SDRLearn = SDRLearn { database :: String
+                         , size :: Integer
+                         , maxsize :: Integer
+                         } deriving (Show, Data, Typeable)
+
+defaultSize :: Integer
+defaultSize = 1024*1024*1024*4
+
+defaultArgs :: SDRLearn
+defaultArgs = SDRLearn { database = "embeds.sdr"
+                       , size = defaultSize
+                       , maxsize = defaultSize
+                       }
 
 -- | Record to represent a general document we might want to add an
--- optional corpus to this record...
+-- optional corpus to this record... also try making fields strict
 data Document = Document {
   docid :: String,
   content  :: T.Text
@@ -32,32 +48,31 @@ instance FromJSON Document where
 
 -- main entry point
 main :: IO ()
-main = iolines 0 >>= print
+main = do
+  args <- cmdArgs defaultArgs
+  edb <- openDB (database args) (size args) (maxsize args)
+  case edb of
+    Left err -> error $ "can't open db: " ++ show err
+    Right db -> iolines (trainf db) 0 >>= print
 
 -- | Read and count lines from stdin dispatching data for Aeson to parse
 -- bad JSON decodes are discarded and errors logged with line number.
-iolines :: Int -> IO Int
-iolines n = do
+iolines :: Trainer -> Int -> IO Int
+iolines tf n = do
   ateof <- isEOF
   if ateof
     then return n
-    else B.getLine >>= decodeDocument n
-         >> iolines (n+1)
+    else B.getLine >>= ((processDocument tf) . (decodeDocument n))
+         >> iolines tf (n+1)
 
 
--- | Attempt to decode nth. line of data to a Document record logging any
--- errors or processing document.
-decodeDocument :: Int -> B.ByteString -> IO ()
+-- | Attempt to decode nth. line of data to a Document record returning an
+-- error description or tokenizing document
+decodeDocument :: Int -> B.ByteString -> Either String [T.Text]
 decodeDocument n s =
   case eitherDecodeStrict' s :: Either String Document of
-    Left e -> putStrLn $ e ++ " at line: " ++ show (n+1)
-    Right d -> processDocument d
-
--- | test output driver
-processDocument :: Document -> IO ()
-processDocument d = 
-    print $ samples [cleanToken t | t <- tokenizeDocument d] 7
-
+    Left e -> Left $  e ++ " at line: " ++ show (n+1)
+    Right d -> Right [cleanToken t | t <- tokenizeDocument d]
 
 -- | Simple white space splitter turns a document into a list of tokens
 tokenizeDocument :: Document -> [T.Text]
@@ -68,32 +83,47 @@ cleanToken :: T.Text -> T.Text
 cleanToken = T.dropAround isPunctuation  
 
 
+-- | Report error or process with training action
+processDocument :: Trainer -> Either String [T.Text] -> IO ()
+processDocument tf r = case r of
+  Left s -> putStrLn s
+  Right ts -> trainframes tf ts 7
+
+
 --
 -- experimental training
 --
 
-type Frame = [T.Text] 
+type Trainer = (String -> String -> IO SDMStatus)
 
--- TODO for external training we need to pass a training action through to
--- sample.. or use processDocument as this is driver and keep these pure
--- i.e. refactor this a bit ;-) 
-
--- | samples get list of tokens in a doc and window size
-samples :: [T.Text] -> Int -> Double  
-samples [] _ = 0.0
-samples (t:ts) n  = sample t (take n ts) + samples ts n
+-- | Create a function for training target and source
+-- by partially evaluating some arguments
+trainf :: SDMDatabase -> Trainer
+trainf db = superpose db "words" "words" 
 
 
-{-
+-- | Training frames from document tokens 
+trainframes :: Trainer -> [T.Text] -> Int -> IO ()
+trainframes _ [] _ = return ()
+trainframes tf (t:ts) n =
+  frame tf t (take n ts) >> trainframes tf ts n 
+
+-- | Training pairs from frame (1 target with rest source)
+frame :: Trainer -> T.Text -> [T.Text] -> IO ()
+frame f t = mapM_ (pair f t)
+
+pair :: Trainer -> T.Text -> T.Text -> IO ()
+pair f t s = do
+  r <- f (T.unpack t) (T.unpack s)
+  when (sdmError r) $ error $ "sdmError: " ++ show r
+
+
+-- TODO with this sample buffer i.e. superpose all of frame
+-- members with t and superpose t with all frame members.
+-- should have good cache behaviour and arithmetic density
+
+{- 
 -- instrumented with naughty function...
 isample :: T.Text -> Frame -> Double
 isample t f = trace (show t ++ "\t" ++ show f) (sample t f)
 -}
-
--- | TODO with this sample buffer i.e. superpose all of frame
--- members with t and superpose t with all frame members.
--- should have good cache behaviour and arithmetic density
-
-sample :: T.Text -> Frame -> Double
-sample t f = 1.0 -- we could return some property of the sample vector here
-    
