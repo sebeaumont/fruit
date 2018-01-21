@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveDataTypeable #-}
+--{-# LANGUAGE DeriveDataTypeable #-}
 
 -- | Main program to process input documents, vectorize and send to ML backends
 -- test bed for encoder and ML modules.
@@ -8,36 +8,26 @@
 
 module Main where
 
-import Control.Monad (when)
+import Control.Monad (when, unless, void)
+import Control.Monad.State
+
 import System.IO (isEOF)
 import System.Console.CmdArgs
+
 import Data.Aeson
 import Data.Char
+
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import qualified Data.ByteString as B
---import Debug.Trace
-import Database.SDM
 
--- | Command line options for this program
-data SDRLearn = SDRLearn { database :: String
-                         , size :: Integer
-                         , maxsize :: Integer
-                         } deriving (Show, Data, Typeable)
-
-defaultSize :: Integer
-defaultSize = 1024*1024*1024*4
-
-defaultArgs :: SDRLearn
-defaultArgs = SDRLearn { database = "embeds.sdr"
-                       , size = defaultSize
-                       , maxsize = defaultSize
-                       }
 
 -- | Record to represent a general document we might want to add an
--- optional corpus to this record... also try making fields strict
+-- optional corpus to this record...
 data Document = Document {
-  docid :: String,
-  content  :: T.Text
+  docid :: !String,
+  content  :: !T.Text
   } deriving (Show)
 
 instance FromJSON Document where
@@ -48,82 +38,167 @@ instance FromJSON Document where
 
 -- main entry point
 main :: IO ()
-main = do
-  args <- cmdArgs defaultArgs
-  edb <- openDB (database args) (size args) (maxsize args)
-  case edb of
-    Left err -> error $ "can't open db: " ++ show err
-    Right db -> iolines (trainf db) 0 >>= print
+main = void $ iolines 0 
+
+
 
 -- | Read and count lines from stdin dispatching data for Aeson to parse
 -- bad JSON decodes are discarded and errors logged with line number.
-iolines :: Trainer -> Int -> IO Int
-iolines tf n = do
+iolines :: Int -> IO Int
+iolines n = do
   ateof <- isEOF
   if ateof
     then return n
-    else B.getLine >>= ((processDocument tf) . (decodeDocument n))
-         >> iolines tf (n+1)
+    else B.getLine >>= (processDocument . decodeDocument)
+         >> iolines (n+1)
 
 
--- | Attempt to decode nth. line of data to a Document record returning an
--- error description or tokenizing document
-decodeDocument :: Int -> B.ByteString -> Either String [T.Text]
-decodeDocument n s =
+
+-- | Attempt to decode nth. line of data to a Document record returning documents
+-- tokens or description of decode error
+decodeDocument :: B.ByteString -> Either String [T.Text]
+decodeDocument s =
   case eitherDecodeStrict' s :: Either String Document of
-    Left e -> Left $  e ++ " at line: " ++ show (n+1)
-    Right d -> Right [cleanToken t | t <- tokenizeDocument d]
+    Left e -> Left $  e
+    Right d -> Right $ documentTokens d 
 
 -- | Simple white space splitter turns a document into a list of tokens
-tokenizeDocument :: Document -> [T.Text]
-tokenizeDocument = T.words . content
+documentTokens :: Document -> [T.Text]
+documentTokens = T.words . content
+
 
 -- | Text words need some cleanup
 cleanToken :: T.Text -> T.Text
-cleanToken = T.dropAround isPunctuation  
+cleanToken = T.dropAround supressChars
+
+supressChars :: Char -> Bool
+supressChars c = or [isPunctuation c, isNumber c, isSymbol c]  
+
+rejectToken :: T.Text -> Bool
+rejectToken t = T.null t || len t <2 || len t >20 || allSame t
+  where
+    len = T.length
+    allSame :: T.Text -> Bool
+    allSame t = T.all (== T.head t) t 
+  
+acceptToken :: T.Text -> Bool
+acceptToken = not . rejectToken 
+
+-- | Tranform tokens
+tokenize :: [T.Text] -> [T.Text]
+tokenize ts = filter acceptToken $ map cleanToken ts
 
 
--- | Report error or process with training action
-processDocument :: Trainer -> Either String [T.Text] -> IO ()
-processDocument tf r = case r of
-  Left s -> putStrLn s
-  Right ts -> trainframes tf ts 7
+-- | This map of tokens allow us to keep track of specific tokens
+type TokenMap = Map.Map T.Text Int
 
+
+-- | Make new token map from list of tokens
+tokenMap :: [T.Text]  -> TokenMap
+tokenMap l = Map.fromList [(t, 0) | t <- l]
+
+
+-- | Append a unique tag to a token if it is in our map WIP/2DO
+-- TokenMap state so we can modify iff changed update the counter for
+-- the map entry and return new map and token
+tagToken :: TokenMap -> T.Text -> (TokenMap, T.Text)
+tagToken tm t =
+  let (v, m) = Map.updateLookupWithKey (\k x -> Just (x + 1)) t tm in
+    case v of
+      Nothing -> (tm, t) 
+      Just n -> (m, T.append t (T.pack $ show n))
 
 --
--- experimental training
+-- its all IO to output samples here on...
 --
 
-type Trainer = (String -> String -> IO SDMStatus)
+-- | Report error or process frames
+-- TODO pass in tokenizer state so we can update it
+-- WIP: this will now get a TokenizerState and the update will be in here
+-- using tagToken over the token list
+processDocument :: Either String [T.Text] -> IO ()
+processDocument r = 
+  case r of
+    Left s -> putStrLn s
+    Right ts -> ((frames 7) . tokenize) ts
 
--- | Create a function for training target and source
--- by partially evaluating some arguments
-trainf :: SDMDatabase -> Trainer
-trainf db = superpose db "words" "words" 
 
 
--- | Training frames from document tokens 
-trainframes :: Trainer -> [T.Text] -> Int -> IO ()
-trainframes _ [] _ = return ()
-trainframes tf (t:ts) n =
-  frame tf t (take n ts) >> trainframes tf ts n 
+-- | Make frames from document tokens
+-- TODO  we need to look behind as well as ahead ±n
+frames :: Int -> [T.Text] -> IO ()
+frames _ [] = return ()
+frames n (t:ts) =
+  frame t (take n ts) >> frames n ts 
 
 -- | Training pairs from frame (1 target with rest source)
-frame :: Trainer -> T.Text -> [T.Text] -> IO ()
-frame f t = mapM_ (pair f t)
+frame :: T.Text -> [T.Text] -> IO ()
+frame t = mapM_ (pair t)
 
-pair :: Trainer -> T.Text -> T.Text -> IO ()
-pair f t s = do
-  r <- f (T.unpack t) (T.unpack s)
-  when (sdmError r) $ error $ "sdmError: " ++ show r
+-- | Dump to stdout
+-- N.B. we could encodeUtf8 these to byte strings...
+pair :: T.Text -> T.Text -> IO ()
+pair t s = putStrLn $ (T.unpack t) ++ "\t" ++ (T.unpack s) ++ "\t" ++ show 1.0
 
 
--- TODO with this sample buffer i.e. superpose all of frame
--- members with t and superpose t with all frame members.
--- should have good cache behaviour and arithmetic density
 
-{- 
--- instrumented with naughty function...
-isample :: T.Text -> Frame -> Double
-isample t f = trace (show t ++ "\t" ++ show f) (sample t f)
+sampleText :: T.Text
+sampleText = "PubMed:13211925        Various strains of influenza virus produce a cytopathogenic effect in cultures of HeLa cells. The virus could not be passed in series. Virus partially or even completely inactivated with respect to infectivity by exposure to 37 degrees C. or ultraviolet light retained some of its cytopathogenic effect. No evidence has been obtained of an increase in infectious virus in HeLa cultures, but an increase in hemagglutinins and in both viral and soluble complement-fixing antigens became detectable during incubation. These virus materials apparently were not released from these cells prior to their destruction. These results suggested that HeLa cells are capable of supporting an incomplete reproductive cycle of influenza virus. The fact that radioactive phosphorus was readily incorporated into the hemagglutinin supplies strong evidence for this interpretation."
+
+----------------
+-- hack alert --
+----------------
+
+--
+-- playing with the state monad
+--
+
+type TokenizerStateM = State TokenMap 
+
+sampleMap :: TokenMap 
+sampleMap = tokenMap ["virus", "or","that","for","but"]
+
+{-
+myLiftIO :: IO a -> TokenizerStateM
+myLiftIO io = state $ \st -> do
+ x <- io
+ return (st, x)
 -}
+
+
+
+-- i/o within our state monad? need to do a transformer
+-- or processCorpusM
+
+
+processDocumentM :: Either String [T.Text] -> TokenizerStateM ()
+processDocumentM r =
+  case r of
+    Left s -> return () -- XX really need to return this error liftIO $ putStrLn s
+    Right ts -> do
+      framesM 7 ts
+      return ()
+
+framesM :: Int -> [T.Text] -> TokenizerStateM ()
+framesM _ [] = return ()
+framesM n (t:ts) = frameM t (take n ts) >> framesM n ts
+
+-- | Training pairs from frame (1 target with rest source)
+frameM :: T.Text -> [T.Text] -> TokenizerStateM ()
+frameM t = mapM_ (pairM t)
+
+-- | Dump to stdout
+-- N.B. we could encodeUtf8 these to byte strings...
+pairM :: T.Text -> T.Text -> TokenizerStateM ()
+pairM t s = do
+  t' <- tagTokenM t
+  s' <- tagTokenM s
+  return ()
+
+-- | Monadic wrapper for stateful token transactions
+tagTokenM :: T.Text -> TokenizerStateM T.Text 
+tagTokenM t =
+  do tm <- get
+     let (m, v) = tagToken tm t 
+     put m
+     return v

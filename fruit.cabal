@@ -20,6 +20,7 @@ executable fruit
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base
+                     , mtl
                      , bytestring
                      , aeson
                      , text
