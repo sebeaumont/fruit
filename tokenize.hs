@@ -165,11 +165,19 @@ myLiftIO io = state $ \st -> do
  return (st, x)
 -}
 
-
-
+processDocumentsM :: [Either String [T.Text]] -> TokenizerStateM ()
+processDocumentsM = mapM_ processDocumentM
 -- i/o within our state monad? need to do a transformer
 -- or processCorpusM
 
+{-
+-- monad transformer stack please
+--nextTokenStream :: IO [T.Text]
+nextTokenStream :: TokenizerStateM () 
+nextTokenStream = do
+  line <- lift $ B.getLine
+  (processDocumentM . decodeDocument) line
+-}
 
 processDocumentM :: Either String [T.Text] -> TokenizerStateM ()
 processDocumentM r =
