@@ -149,62 +149,44 @@ sampleText = "PubMed:13211925        Various strains of influenza virus produce 
 -- hack alert --
 ----------------
 
---
--- playing with the state monad
---
-
-type TokenizerStateM = State TokenMap 
+-- using state monad to wrap the tokenmap and use io in the same monad
 
 sampleMap :: TokenMap 
 sampleMap = tokenMap ["virus", "or","that","for","but"]
 
-{-
-myLiftIO :: IO a -> TokenizerStateM
-myLiftIO io = state $ \st -> do
- x <- io
- return (st, x)
--}
+proio :: StateT TokenMap IO ()
+proio = do
+  s <- lift B.getLine
+  let d = decodeDocument s
+  x <- processDocumentM d
+  return ()
 
-processDocumentsM :: [Either String [T.Text]] -> TokenizerStateM ()
-processDocumentsM = mapM_ processDocumentM
--- i/o within our state monad? need to do a transformer
--- or processCorpusM
-
-{-
--- monad transformer stack please
---nextTokenStream :: IO [T.Text]
-nextTokenStream :: TokenizerStateM () 
-nextTokenStream = do
-  line <- lift $ B.getLine
-  (processDocumentM . decodeDocument) line
--}
-
-processDocumentM :: Either String [T.Text] -> TokenizerStateM ()
+processDocumentM :: Either String [T.Text] -> StateT TokenMap IO ()
 processDocumentM r =
   case r of
     Left s -> return () -- XX really need to return this error liftIO $ putStrLn s
     Right ts -> do
-      framesM 7 ts
+      framesM 7 $ tokenize ts
       return ()
 
-framesM :: Int -> [T.Text] -> TokenizerStateM ()
+framesM :: Int -> [T.Text] -> StateT TokenMap IO ()
 framesM _ [] = return ()
 framesM n (t:ts) = frameM t (take n ts) >> framesM n ts
 
 -- | Training pairs from frame (1 target with rest source)
-frameM :: T.Text -> [T.Text] -> TokenizerStateM ()
+frameM :: T.Text -> [T.Text] -> StateT TokenMap IO ()
 frameM t = mapM_ (pairM t)
 
 -- | Dump to stdout
 -- N.B. we could encodeUtf8 these to byte strings...
-pairM :: T.Text -> T.Text -> TokenizerStateM ()
+pairM :: T.Text -> T.Text -> StateT TokenMap IO (T.Text, T.Text)
 pairM t s = do
   t' <- tagTokenM t
   s' <- tagTokenM s
-  return ()
+  return (t', s')
 
 -- | Monadic wrapper for stateful token transactions
-tagTokenM :: T.Text -> TokenizerStateM T.Text 
+tagTokenM :: T.Text -> StateT TokenMap IO T.Text 
 tagTokenM t =
   do tm <- get
      let (m, v) = tagToken tm t 
