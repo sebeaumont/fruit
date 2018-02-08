@@ -37,8 +37,8 @@ instance FromJSON Document where
     <*> v .: "content"
 
 -- | cheap logger
-logerr :: String -> IO ()
-logerr = hPutStrLn stderr
+logerr :: Show a => a -> IO ()
+logerr = hPutStrLn stderr . show
 
 -- command line parameters
 data Tokenizer = Tokenizer {
@@ -114,18 +114,6 @@ tagTokenM t =
      return v
 
 
--- the original io loop
-
--- | Read and count lines from stdin dispatching data for Aeson to parse
--- bad JSON decodes are discarded and errors logged with line number.
-iolines :: Int -> IO Int
-iolines n = do
-  ateof <- isEOF
-  if ateof
-    then return n
-    else B.getLine >>= (processDocument . decodeDocument)
-         >> iolines (n+1)
-
 -- | Attempt to decode nth. line of data to a Document record returning documents
 -- tokens or description of decode error
 decodeDocument :: B.ByteString -> Either String [T.Text]
@@ -168,9 +156,12 @@ tagToken tm t =
   let (v, m) = Map.updateLookupWithKey (\_ x -> Just (x + 1)) t tm in
     case v of
       Nothing -> (tm, t) 
-      Just n -> (m, T.append t (T.pack $ show n))
+      Just n -> (m, T.append t (tag n))
 
+tag :: Int -> T.Text
+tag n = T.pack $ "#" ++ show n
 
+{-
 -- | Report error or process frames
 -- TODO pass in tokenizer state so we can update it
 -- WIP: this will now get a TokenizerState and the update will be in here
@@ -197,7 +188,7 @@ frame t = mapM_ (pair t)
 -- N.B. we could encodeUtf8 these to byte strings...
 pair :: T.Text -> T.Text -> IO ()
 pair t s = putStrLn $ (T.unpack t) ++ "\t" ++ (T.unpack s) ++ "\t" ++ show (1.0 :: Double)
-
+-}
 
 
 sampleText :: T.Text
