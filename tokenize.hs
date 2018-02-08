@@ -8,7 +8,7 @@
 
 module Main where
 
---import Control.Monad (when, unless, void)
+import Control.Monad (unless, void)
 import Control.Monad.State
 
 import System.IO (isEOF, hPutStrLn, stderr)
@@ -30,15 +30,7 @@ data Document = Document {
   content  :: !T.Text
   } deriving (Show)
 
-{-
-instance FromJSON Document where
-  parseJSON (Object v) =
-    Document
-    <$> v .: "docid"
-    <*> v .: "content"
-  -- this function definitely not total for all json not sure how to handle that!
--}
-
+-- | How to construct a Document from JSON
 instance FromJSON Document where
   parseJSON = withObject "Document" $ \v -> Document
     <$> v .: "docid"
@@ -51,8 +43,8 @@ logerr = hPutStrLn stderr
 -- command line parameters
 data Tokenizer = Tokenizer {
   indexTokens :: [T.Text],
-    forward :: Integer,
-    behind :: Integer
+    forward :: Int,
+    behind :: Int
   } deriving (Show, Data, Typeable)
 
 
@@ -61,10 +53,10 @@ defaultToz = Tokenizer [] 7 7
 
 -- main entry point
 main :: IO ()
--- TODO get parameters from command line
-main = do
+main = void $ do
   opts <- cmdArgs defaultToz
-  execStateT proio (tokenMap $ indexTokens opts) >>= print
+  print opts
+  execStateT (proio opts) (tokenMap $ indexTokens opts) >>= print
 
 -- | This map of tokens allow us to keep track of specific token instances
 type TokenMap = Map.Map T.Text Int
@@ -80,24 +72,20 @@ tokenMap l = Map.fromList [(t, 0) | t <- l]
 
 -- | replacement io loop
 -- call this to process a corpus of json lines via stdio
-proio :: StateT TokenMap IO ()
-proio = do
-  eof <- lift isEOF
-  if eof
-    then return ()
-    else do
-      lift B.getLine >>= (processDocumentM . decodeDocument)
-      proio
+proio :: Tokenizer -> StateT TokenMap IO ()
+proio t = void $ do
+  eof <- liftIO isEOF
+  unless eof
+    (liftIO B.getLine >>= (processDocumentM t . decodeDocument) >> proio t)
+
 
 -- | process a set of tokens as a document also report any
 -- decode errors to stdio (need line numbers back) 
-processDocumentM :: Either String [T.Text] -> StateT TokenMap IO ()
-processDocumentM r =
+processDocumentM :: Tokenizer -> Either String [T.Text] -> StateT TokenMap IO ()
+processDocumentM t r = void $
   case r of
-    Left s -> lift $ logerr s -- this is a joke but ok in this case
-    Right ts -> do
-      framesM 7 $ tokenize ts
-      return ()
+    Left s -> liftIO $ logerr s
+    Right ts -> framesM (forward t) $ tokenize ts
 
 -- | Frames of n from Int 
 framesM :: Int -> [T.Text] -> StateT TokenMap IO ()
