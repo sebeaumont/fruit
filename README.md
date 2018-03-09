@@ -1,5 +1,24 @@
-Deep Learning of Narrative
-===========================
+Project for general text/ngram learning tools
+==============================================
+
+## TODO 
+
+- Use sqlite to load/store data rather than good 'ol stdio
+
+- Refactor 
+    - json -> sqlite
+    - tokenizer -> sqlite
+    - frame/ngram picker (use term keys in sqlite)
+    
+- Embedding
+
+- Clustering
+  
+
+
+## Deep Learning using Grenade etc.
+
+This now on hold until above re-worked
 
 - Input docs as json lines
   - lazy stream or one line/doc at a time? latter done.
