@@ -3,7 +3,7 @@
 
 name:                fruit
 version:             0.1.0.0
-synopsis:            Stuff for language models and RNNs
+synopsis:            Basic text processing for ML
 -- description:         
 license:             BSD3
 license-file:        LICENSE
@@ -16,7 +16,7 @@ extra-source-files:  ChangeLog.md, README.md
 cabal-version:       >=1.10
 
 executable fruitcake
-  main-is:             tokenize.hs
+  main-is:             toktrain.hs
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base
@@ -25,9 +25,10 @@ executable fruitcake
                      , aeson
                      , text
                      , containers
-                     , hsdmdb
-                     , grenade
-                     , galgebra
+                     , text-metrics
+                     --, hsdmdb
+                     --, grenade
+                     --, galgebra
                      , cmdargs
 
   -- hs-source-dirs:      

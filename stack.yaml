@@ -1,4 +1,4 @@
-resolver: lts-10.1
+resolver: lts-10.7
 
 allow-newer: true
 system-ghc: true
@@ -8,14 +8,8 @@ extra-package-dbs: []
 
 packages:
   - .
-  - /Users/seb/Dev/solent/hsdmdb
-  - /Users/seb/Dev/solent/galgebra
   - /Users/seb/Lab/grenade
 
-extra-deps:
-  # these for intero
-  - ghc-paths-0.1.0.9
-  - syb-0.7
   
 
 

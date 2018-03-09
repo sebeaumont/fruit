@@ -3,8 +3,11 @@
 
 -- | Main program to process input documents, vectorize and send to ML backends
 -- test bed for encoder and ML modules.
+
 -- Contact: <mailto:simon.beaumont@clinitink.com>
 -- Internal Use Only - All Rights Reserved.
+
+-- TODO refactor by breaking monolith into tokenizer, framer and trainer parts
 
 module Main where
 
@@ -36,20 +39,20 @@ instance FromJSON Document where
     <$> v .: "docid"
     <*> v .: "content"
 
--- | cheap logger
+-- | Cheap logger
 logerr :: Show a => a -> IO ()
 logerr = hPutStrLn stderr . show
 
--- command line parameters
-data Tokenizer = Tokenizer {
+-- | UserOptions/command line parameters
+data UserOptions = UserOptions {
   indexTokens :: [T.Text],
-    forward :: Int,
-    behind :: Int
+  forward :: Int,
+  behind :: Int
   } deriving (Show, Data, Typeable)
 
 
-defaultToz :: Tokenizer
-defaultToz = Tokenizer [] 7 7
+defaultToz :: UserOptions
+defaultToz = UserOptions [] 7 7
 
 -- main entry point
 main :: IO ()
@@ -58,7 +61,7 @@ main = void $ do
   print opts
   execStateT (proio opts) (tokenMap $ indexTokens opts) >>= print
 
--- | This map of tokens allow us to keep track of specific token instances
+-- | This map of tokens allow us to keep track of specific token occurrences
 type TokenMap = Map.Map T.Text Int
 
 
@@ -66,13 +69,14 @@ type TokenMap = Map.Map T.Text Int
 tokenMap :: [T.Text]  -> TokenMap
 tokenMap l = Map.fromList [(t, 0) | t <- l]
 
-----------------------------------------------------
--- monadic io side effects with state of TokenMap --
-----------------------------------------------------
+
+------------------------------------
+-- io effects with TokenMap state --
+------------------------------------
 
 -- | replacement io loop
 -- call this to process a corpus of json lines via stdio
-proio :: Tokenizer -> StateT TokenMap IO ()
+proio :: UserOptions -> StateT TokenMap IO ()
 proio t = void $ do
   eof <- liftIO isEOF
   unless eof
@@ -81,11 +85,15 @@ proio t = void $ do
 
 -- | process a set of tokens as a document also report any
 -- decode errors to stdio (need line numbers back) 
-processDocumentM :: Tokenizer -> Either String [T.Text] -> StateT TokenMap IO ()
+processDocumentM :: UserOptions -> Either String [T.Text] -> StateT TokenMap IO ()
 processDocumentM t r = void $
   case r of
     Left s -> liftIO $ logerr s
     Right ts -> framesM (forward t) $ tokenize ts
+
+-- TODO rewrite this so as not to be doing i/o but return "frames" as list
+-- of tokens with behind and forward from target token
+-- see original python tokenizer...
 
 -- | Frames of n from Int 
 framesM :: Int -> [T.Text] -> StateT TokenMap IO ()
@@ -119,7 +127,7 @@ tagTokenM t =
 decodeDocument :: B.ByteString -> Either String [T.Text]
 decodeDocument s =
   case eitherDecodeStrict' s :: Either String Document of
-    Left e -> Left $  e
+    Left e -> Left e
     Right d -> Right $ documentTokens d 
 
 -- | Simple white space splitter turns a document into a list of tokens
@@ -132,7 +140,7 @@ cleanToken :: T.Text -> T.Text
 cleanToken = T.dropAround supressChars
 
 supressChars :: Char -> Bool
-supressChars c = or [isPunctuation c, isNumber c, isSymbol c]  
+supressChars c = isPunctuation c || isNumber c || isSymbol c  
 
 rejectToken :: T.Text -> Bool
 rejectToken t = T.null t || len t <2 || len t >20 || allSameChar t
@@ -160,35 +168,6 @@ tagToken tm t =
 
 tag :: Int -> T.Text
 tag n = T.pack $ "#" ++ show n
-
-{-
--- | Report error or process frames
--- TODO pass in tokenizer state so we can update it
--- WIP: this will now get a TokenizerState and the update will be in here
--- using tagToken over the token list
-processDocument :: Either String [T.Text] -> IO ()
-processDocument r = 
-  case r of
-    Left s -> logerr s
-    Right ts -> ((frames 7) . tokenize) ts
-
-
--- | Make frames from document tokens
--- TODO  we need to look behind as well as ahead ±n
-frames :: Int -> [T.Text] -> IO ()
-frames _ [] = return ()
-frames n (t:ts) =
-  frame t (take n ts) >> frames n ts 
-
--- | Training pairs from frame (1 target with rest source)
-frame :: T.Text -> [T.Text] -> IO ()
-frame t = mapM_ (pair t)
-
--- | Dump to stdout
--- N.B. we could encodeUtf8 these to byte strings...
-pair :: T.Text -> T.Text -> IO ()
-pair t s = putStrLn $ (T.unpack t) ++ "\t" ++ (T.unpack s) ++ "\t" ++ show (1.0 :: Double)
--}
 
 
 sampleText :: T.Text
