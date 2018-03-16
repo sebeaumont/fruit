@@ -13,12 +13,13 @@ import json
 
 @functools.lru_cache(maxsize=1)
 def unicode_punctuation_map():
-    return dict.fromkeys(
-        i for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith('P'))
+    return dict.fromkeys(i for i in range(sys.maxunicode)
+                         if unicodedata.category(chr(i)).startswith('P'))
 
 @functools.lru_cache(maxsize=1)
 def unicode_punctuation():
-    return "".join([chr(i) for i in range(sys.maxunicode) if unicodedata.category(chr(i)).startswith('P')])
+    return "".join([chr(i) for i in range(sys.maxunicode)
+                    if unicodedata.category(chr(i)).startswith('P')])
 
 
 def is_number(s):
@@ -125,7 +126,9 @@ def tokenize_chunks(text,
     chunks = (tokens[a:a+window_size] for a in range(0,len(tokens), window_size-overlap_size))
         
     for n, chunk in enumerate(chunks):
-        toks = [unicodedata.normalize('NFKD', t) for t in [token.lstrip(lstrip_bag).rstrip(rstrip_bag) for token in chunk] if filter(t)]
+        toks = [unicodedata.normalize('NFKD', t)
+                for t in [token.lstrip(lstrip_bag).rstrip(rstrip_bag)
+                          for token in chunk] if filter(t)]
         if len(toks) > 0:
             yield toks
 
@@ -138,7 +141,8 @@ def tokenize(text,
     """white-space tokenizer."""
     # filter post stripping...
     return (unicodedata.normalize('NFKD', t)
-                for t in (tok.lstrip(lstrip_bag).rstrip(rstrip_bag) for tok in re.split("\s+", text))
+                for t in (tok.lstrip(lstrip_bag).rstrip(rstrip_bag)
+                          for tok in re.split("\s+", text))
                 if filter(t))
     
         
