@@ -13,14 +13,12 @@ import Data.Foldable (toList)
 import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as S
-
-
-
 -- TODO maybe we will rexport this module
 -- import Data.Text.Metrics
+import qualified Data.List as L 
 
+-- | Tranform a  Data.Text into a list of tokens by splitting and cleaning.
 
--- | Tranform text into token stream
 tokenize :: T.Text -> [T.Text]
 tokenize = filter acceptToken . (map cleanToken) . T.words
 -- Text words need some cleanup
@@ -42,44 +40,42 @@ rejectToken t = T.null t || len t <2 || len t >20 || allSameChar t
 acceptToken :: T.Text -> Bool
 acceptToken = not . rejectToken 
 
+
 --------------------------------------------------------------------
--- all ngrams up to some n
+-- | All ngrams up to size n using a (lazy) list of Data.Text to
+-- represent the token stream.
 
 ngrams :: Int -> [T.Text] -> [[T.Text]] 
 ngrams n s =
   let q = S.fromList $ take n s
       t = drop n s in
-    sgrams q t  
+    grams q t  
 
     
 -- Whilst the implmentation of processing a stream into ngrams
 -- (potentially infinite list) of tokens uses Data.Sequence for
 -- computational complexity, (most operations being O(1)) the type of
--- the token data is left variable to promote reuse of this approach
-
--- the approach is to use a fixed length buffer (sequence) and then
+-- the token data is left variable to promote reuse of this approach,
+-- which is to use a fixed length buffer (the sequence) and then
 -- incrementally add new tokens from the stream generating ngrams as
--- we go -- this is actually quite simple and with a concurrent queue
--- would allow mutiple threads to work to supply tokens, process and
--- process the ngrams.
+-- we go. Using e.g. a concurrent queue in place of a sequence would
+-- allow mutiple threads to work to supply tokens and process the
+-- ngrams.
 
--- once filled: one out one in N.B. sequneces are fixed length and
--- stricter than lists so drop before append is required
-
--- TODO get my head round what I've written here.
---      it typechecks so it must be right!
-
-sgrams :: S.Seq a -> [a] -> [[a]]
-sgrams s [] = grams s
-sgrams s (a:as) = grams s ++ sgrams (scroll1 s a) as
+grams :: S.Seq a -> [a] -> [[a]]
+grams s [] = sgrams s
+grams s (a:as) = sgrams s ++ grams (scroll1 s a) as
   
 scroll1 :: S.Seq a -> a -> S.Seq a
 scroll1 s x = (S.drop 1 s) S.|> x
 
--- grams are the filtered tails of the sequence buffer
-grams :: S.Seq a -> [[a]] 
-grams s = [toList b | b <- toList $ S.tails s, not $ null b]
+-- sgrams all grams 1..length of sequence 
+sgrams :: S.Seq a -> [[a]] 
+sgrams s = L.concatMap (lgrams $ toList s) [1..S.length s]
 
+-- grams of length n in list
+lgrams :: [a] -> Int -> [[a]]
+lgrams l n = take (length l - (n - 1)) . map (take n) . L.tails $ l
 
 
 -----------------------------------------------
