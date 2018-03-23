@@ -5,22 +5,27 @@
 -- e.g. language models and NLP.  We also re-export some useful
 -- modules so as to be a "one stop shop" for pre-processing text.
 
-module Data.Text.Analysis where 
+module Data.Text.Analysis ( tokenize
+                          , mngrams
+                          , ngrams
+                          , allgrams
+                          , TokenMap
+                          , tokenMap
+                          , tagToken
+                          , module Data.Text.Metrics
+                          ) where 
 
---import Prelude hiding (drop)
+
 import Data.Char
-import Data.Foldable (toList)
+import Data.List
 import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
-import qualified Data.Sequence as S
--- TODO maybe we will rexport this module
--- import Data.Text.Metrics
-import qualified Data.List as L 
+import Data.Text.Metrics -- re-exported as is
 
--- | Tranform a  Data.Text into a list of tokens by splitting and cleaning.
-
+-- | Transform a Data.Text into a list of tokens by splitting and cleaning.
 tokenize :: T.Text -> [T.Text]
 tokenize = filter acceptToken . (map cleanToken) . T.words
+
 -- Text words need some cleanup
 -- TODO make the cleanup classes parameters of the tokenize function
 
@@ -42,40 +47,21 @@ acceptToken = not . rejectToken
 
 
 --------------------------------------------------------------------
--- | All ngrams up to size n using a (lazy) list of Data.Text to
--- represent the token stream.
+-- ngrams
+-- since these operate on lists in general perhaps they
+-- should be in their own module.
 
-ngrams :: Int -> [T.Text] -> [[T.Text]] 
-ngrams n s =
-  let q = S.fromList $ take n s
-      t = drop n s in
-    grams q t  
+-- | grams of length m to n
+mngrams :: [a] -> Int -> Int -> [[[a]]]
+mngrams l m n = map (ngrams l) [m..n]
 
-    
--- Whilst the implmentation of processing a stream into ngrams
--- (potentially infinite list) of tokens uses Data.Sequence for
--- computational complexity, (most operations being O(1)) the type of
--- the token data is left variable to promote reuse of this approach,
--- which is to use a fixed length buffer (the sequence) and then
--- incrementally add new tokens from the stream generating ngrams as
--- we go. Using e.g. a concurrent queue in place of a sequence would
--- allow mutiple threads to work to supply tokens and process the
--- ngrams.
+-- | all grams (of length 1 to n)
+allgrams :: [a] -> Int -> [[[a]]]
+allgrams l = mngrams l 1 
 
-grams :: S.Seq a -> [a] -> [[a]]
-grams s [] = sgrams s
-grams s (a:as) = sgrams s ++ grams (scroll1 s a) as
-  
-scroll1 :: S.Seq a -> a -> S.Seq a
-scroll1 s x = (S.drop 1 s) S.|> x
-
--- sgrams all grams 1..length of sequence 
-sgrams :: S.Seq a -> [[a]] 
-sgrams s = L.concatMap (lgrams $ toList s) [1..S.length s]
-
--- grams of length n in list
-lgrams :: [a] -> Int -> [[a]]
-lgrams l n = take (length l - (n - 1)) . map (take n) . L.tails $ l
+-- | grams of length n
+ngrams :: [a] -> Int -> [[a]]
+ngrams l n = take (length l - (n - 1)) . map (take n) . tails $ l
 
 
 -----------------------------------------------
@@ -102,8 +88,8 @@ tagToken tm t =
 tag :: Int -> T.Text
 tag n = T.pack $ "#" ++ show n
 
-
+{-
 sampleText :: T.Text
 sampleText = "PubMed:13211925        Various strains of influenza virus produce a cytopathogenic effect in cultures of HeLa cells. The virus could not be passed in series. Virus partially or even completely inactivated with respect to infectivity by exposure to 37 degrees C. or ultraviolet light retained some of its cytopathogenic effect. No evidence has been obtained of an increase in infectious virus in HeLa cultures, but an increase in hemagglutinins and in both viral and soluble complement-fixing antigens became detectable during incubation. These virus materials apparently were not released from these cells prior to their destruction. These results suggested that HeLa cells are capable of supporting an incomplete reproductive cycle of influenza virus. The fact that radioactive phosphorus was readily incorporated into the hemagglutinin supplies strong evidence for this interpretation."
-
+-}
 

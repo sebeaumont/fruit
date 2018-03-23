@@ -15,6 +15,40 @@ build-type:          Simple
 extra-source-files:  ChangeLog.md, README.md
 cabal-version:       >=1.10
 
+library
+  exposed-modules:     Data.Text.Analysis
+                     , Document.JSON
+  build-depends:       base
+                     , containers
+                     , text
+                     , bytestring
+                     , text-metrics
+                     , aeson
+                     
+  default-language:    Haskell2010
+  ghc-options:         -O3 -Wall
+
+                       
+executable loadgrams
+  main-is:             loadgrams.hs
+  other-modules:       Data.Text.Analysis
+                     , Document.JSON
+  -- other-extensions:    
+  build-depends:       base
+                     , text
+                     , containers
+                     , cmdargs
+                     , sqlite-simple
+                     , fruit
+                     , text-metrics
+                     , bytestring
+                     , aeson
+                     
+  -- hs-source-dirs:      
+  default-language:    Haskell2010
+  ghc-options:         -O3 -Wall
+
+                       
 executable fruitcake
   main-is:             toktrain.hs
   -- other-modules:       
@@ -25,7 +59,6 @@ executable fruitcake
                      , aeson
                      , text
                      , containers
-                     , text-metrics
                      --, hsdmdb
                      --, grenade
                      --, galgebra
